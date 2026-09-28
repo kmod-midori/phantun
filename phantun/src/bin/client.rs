@@ -1,11 +1,9 @@
-use clap::{Arg, ArgAction, Command, crate_version};
+use clap::{crate_version, Arg, ArgAction, Command};
 use fake_tcp::packet::MAX_PACKET_LEN;
 use fake_tcp::tun::TunBuilder;
 use fake_tcp::{Socket, Stack};
 use log::{debug, error, info};
-use phantun::utils::{
-    assign_ipv6_address, new_udp_reuseport, udp_fastpath_workers, udp_recv_pktinfo,
-};
+use phantun::utils::{assign_ipv6_address, new_udp_reuseport, udp_fastpath_workers, udp_recv_pktinfo};
 use std::collections::HashMap;
 use std::fs;
 use std::io;
@@ -169,9 +167,7 @@ async fn main() -> io::Result<()> {
     info!("Created TUN device {}", tun[0].name());
 
     let udp_sock = Arc::new(new_udp_reuseport(local_addr));
-    let connections = Arc::new(RwLock::new(
-        HashMap::<SocketAddr, (Arc<Socket>, Arc<Notify>)>::new(),
-    ));
+    let connections = Arc::new(RwLock::new(HashMap::<SocketAddr, Arc<Socket>>::new()));
 
     let mut stack = Stack::new(tun, tun_peer, tun_peer6);
 
@@ -179,15 +175,13 @@ async fn main() -> io::Result<()> {
         let mut buf_r = [0u8; MAX_PACKET_LEN];
 
         loop {
-            let (size, udp_remote_addr, udp_local_addr) =
-                udp_recv_pktinfo(&udp_sock, &mut buf_r).await?;
+            let (size, udp_remote_addr, udp_local_addr) = udp_recv_pktinfo(&udp_sock, &mut buf_r).await?;
             // seen UDP packet to listening socket, this means:
             // 1. It is a new UDP connection, or
             // 2. It is some extra packets not filtered by more specific
             //    connected UDP socket yet
-            if let Some((sock, packet_received)) = connections.read().await.get(&udp_remote_addr) {
+            if let Some(sock) = connections.read().await.get(&udp_remote_addr) {
                 sock.send(&buf_r[..size]).await;
-                packet_received.notify_one();
                 continue;
             }
 
@@ -213,20 +207,18 @@ async fn main() -> io::Result<()> {
                 continue;
             }
 
-            let packet_received = Arc::new(Notify::new());
-            let quit = CancellationToken::new();
-
-            assert!(
-                connections
-                    .write()
-                    .await
-                    .insert(udp_remote_addr, (sock.clone(), packet_received.clone()))
-                    .is_none()
-            );
+            assert!(connections
+                .write()
+                .await
+                .insert(udp_remote_addr, sock.clone())
+                .is_none());
             debug!("inserted fake TCP socket into connection table");
 
             // spawn "fastpath" UDP socket and task, this will offload main task
             // from forwarding UDP packets
+
+            let packet_received = Arc::new(Notify::new());
+            let quit = CancellationToken::new();
 
             for i in 0..udp_fastpath_workers() {
                 let sock = sock.clone();
@@ -268,10 +260,8 @@ async fn main() -> io::Result<()> {
                     loop {
                         tokio::select! {
                             Ok((size, src_addr)) = udp_sock.recv_from(&mut buf_udp) => {
-                                // macOS hands an unconnected socket that shares the listening
-                                // address every datagram that arrives, so this one is from
-                                // somebody else, sent while this socket was being set up.
-                                // Not ours to forward: drop it, UDP senders retry.
+                                // macOS delivers datagrams addressed to another client to a
+                                // socket that is bound but not yet connected, see README
                                 if src_addr != udp_remote_addr {
                                     debug!("Dropped datagram from {} addressed to {}", src_addr, udp_remote_addr);
                                     continue;

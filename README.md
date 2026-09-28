@@ -233,10 +233,7 @@ ip6tables -t nat -A PREROUTING -p tcp -i eth0 --dport 4567 -j DNAT --to-destinat
 
 With `pf(4)`, DNAT is written as `rdr`. Add the rules below to `/etc/pf.conf`, changing `en0`
 to whatever actual physical interface name is, and load them with `sudo pfctl -f /etc/pf.conf`.
-
-`pf` requires translation rules to come before filtering ones, so insert them after the
-`nat-anchor`/`rdr-anchor` lines instead of appending them at the end of the file, which fails
-with `Rules must be in order`. `sudo pfctl -n -f /etc/pf.conf` checks the file without loading it.
+See the [Client](#using-pf-macos) rules above for where in the file they belong.
 
 ```
 rdr on en0 inet proto tcp to port 4567 -> 192.168.201.2 port 4567

@@ -111,9 +111,6 @@ mod platform {
 
         /// Accepted for compatibility with `tokio_tun::TunBuilder`, utun is single queue
         /// so a single [`Tun`] is always built.
-        // ponytail: no multiqueue on macOS, the kernel only ever hands out one socket per
-        // interface. Add a reader fan-out with SO_RCVBUF/socket filters if one reader task
-        // ever becomes the bottleneck.
         pub fn queues(self, _queues: usize) -> Self {
             self
         }
