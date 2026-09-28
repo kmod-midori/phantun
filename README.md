@@ -39,7 +39,7 @@ A lightweight and fast UDP to TCP obfuscator.
 
 # Latest release
 
-[v0.8.1](https://github.com/dndx/phantun/releases/tag/v0.8.1)
+[v0.9.0](https://github.com/kmod-midori/phantun/releases/tag/v0.9.0)
 
 <details>
   <summary>MIPS architecture support for Phantun</summary>
