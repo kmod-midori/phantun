@@ -2,7 +2,14 @@
 
 A lightweight and fast UDP to TCP obfuscator.
 
-![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/dndx/phantun/rust.yml)
+> **This is a fork of [dndx/phantun](https://github.com/dndx/phantun) that adds macOS support.**
+> macOS uses the `utun(4)` driver instead of Linux's TUN device, see [macOS](#macos) for the
+> differences. Release artifacts for `aarch64-apple-darwin` and `x86_64-apple-darwin` are
+> published alongside the Linux ones in [this fork's releases](https://github.com/kmod-midori/phantun/releases).
+> Everything below that is not macOS-specific is upstream's, and upstream remains the place to
+> report bugs that reproduce on Linux.
+
+![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/kmod-midori/phantun/rust.yml)
 ![docs.rs](https://img.shields.io/docsrs/fake-tcp)
 
 # Table of Contents
