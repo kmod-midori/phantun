@@ -318,13 +318,9 @@ steps above apply, with the following differences:
   run the binaries with `sudo` and skip [step 3](#3-run-phantun-binaries-as-non-root-optional).
 * The interface is called `utunN`, use `--tun utun4` to pin a specific unit. If that unit is
   already taken, Phantun fails to start instead of picking another one.
-* A UDP connection is served by a single core. Linux spreads a connection's fastpath over
-  all cores, but macOS refuses to connect a second `SO_REUSEPORT` socket to a peer that
-  another one is already connected to, so one worker serves a connection there.
-* A fastpath socket is bound, and briefly still unconnected, when it is created, and macOS
-  hands a socket in that state every datagram that arrives, including another client's.
-  Phantun drops those, so a client may lose a datagram sent in that window, most likely the
-  first one of a new connection. UDP senders retransmit, as they would for any other loss.
+* macOS refuses to connect a second `SO_REUSEPORT` socket to a peer that another one is
+  already connected to (`EADDRINUSE`), so a connection gets a single fastpath worker
+  instead of one per core.
 
 [Back to TOC](#table-of-contents)
 
