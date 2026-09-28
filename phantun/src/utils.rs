@@ -23,7 +23,8 @@ use tokio::net::UdpSocket;
 
 /// Number of "fastpath" worker tasks to spawn for a single UDP connection.
 ///
-/// macOS spreads neither, see the comments in `phantun/src/bin/client.rs`.
+/// macOS refuses to connect a second socket bound to the same address to a peer that
+/// another one is already connected to, so a connection gets a single worker there.
 pub fn udp_fastpath_workers() -> usize {
     if cfg!(target_os = "macos") {
         1

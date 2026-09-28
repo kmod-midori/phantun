@@ -3,15 +3,13 @@ use fake_tcp::packet::MAX_PACKET_LEN;
 use fake_tcp::tun::TunBuilder;
 use fake_tcp::{Socket, Stack};
 use log::{debug, error, info};
-#[cfg(not(target_os = "macos"))]
-use phantun::utils::udp_recv_pktinfo;
-use phantun::utils::{assign_ipv6_address, new_udp_reuseport, udp_fastpath_workers};
+use phantun::utils::{
+    assign_ipv6_address, new_udp_reuseport, udp_fastpath_workers, udp_recv_pktinfo,
+};
 use std::collections::HashMap;
 use std::fs;
 use std::io;
-#[cfg(not(target_os = "macos"))]
-use std::net::{IpAddr, SocketAddrV4, SocketAddrV6};
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::sync::Arc;
 use tokio::sync::{Notify, RwLock};
 use tokio::time;
@@ -181,10 +179,8 @@ async fn main() -> io::Result<()> {
         let mut buf_r = [0u8; MAX_PACKET_LEN];
 
         loop {
-            #[cfg(target_os = "macos")]
-            let (size, udp_remote_addr) = udp_sock.recv_from(&mut buf_r).await?;
-            #[cfg(not(target_os = "macos"))]
-            let (size, udp_remote_addr, udp_local_addr) = udp_recv_pktinfo(&udp_sock, &mut buf_r).await?;
+            let (size, udp_remote_addr, udp_local_addr) =
+                udp_recv_pktinfo(&udp_sock, &mut buf_r).await?;
             // seen UDP packet to listening socket, this means:
             // 1. It is a new UDP connection, or
             // 2. It is some extra packets not filtered by more specific
@@ -236,49 +232,7 @@ async fn main() -> io::Result<()> {
                 let sock = sock.clone();
                 let quit = quit.clone();
                 let packet_received = packet_received.clone();
-                #[cfg(target_os = "macos")]
-                let udp_sock = udp_sock.clone();
 
-                // On macOS there is no fastpath socket: a second socket bound to the
-                // listening port joins the kernel's SO_REUSEPORT group before it is
-                // connected, and macOS hands such a socket every datagram that arrives in
-                // that window, no matter who sent it. That hijacks new clients and feeds
-                // them into this connection. The main loop already sees every datagram, so
-                // this task only writes replies back, through the listening socket.
-                #[cfg(target_os = "macos")]
-                tokio::spawn(async move {
-                    let mut buf_tcp = [0u8; MAX_PACKET_LEN];
-
-                    loop {
-                        tokio::select! {
-                            res = sock.recv(&mut buf_tcp) => {
-                                match res {
-                                    Some(size) => {
-                                        if size > 0
-                                            && let Err(e) = udp_sock.send_to(&buf_tcp[..size], udp_remote_addr).await {
-                                                error!("Unable to send UDP packet to {}: {}, closing connection", e, udp_remote_addr);
-                                                quit.cancel();
-                                                return;
-                                            }
-                                    },
-                                    None => {
-                                        debug!("removed fake TCP socket from connections table");
-                                        quit.cancel();
-                                        return;
-                                    },
-                                }
-
-                                packet_received.notify_one();
-                            },
-                            _ = quit.cancelled() => {
-                                debug!("worker {} terminated", i);
-                                return;
-                            },
-                        };
-                    }
-                });
-
-                #[cfg(not(target_os = "macos"))]
                 tokio::spawn(async move {
                     let mut buf_udp = [0u8; MAX_PACKET_LEN];
                     let mut buf_tcp = [0u8; MAX_PACKET_LEN];
@@ -313,7 +267,16 @@ async fn main() -> io::Result<()> {
 
                     loop {
                         tokio::select! {
-                            Ok(size) = udp_sock.recv(&mut buf_udp) => {
+                            Ok((size, src_addr)) = udp_sock.recv_from(&mut buf_udp) => {
+                                // macOS hands an unconnected socket that shares the listening
+                                // address every datagram that arrives, so this one is from
+                                // somebody else, sent while this socket was being set up.
+                                // Not ours to forward: drop it, UDP senders retry.
+                                if src_addr != udp_remote_addr {
+                                    debug!("Dropped datagram from {} addressed to {}", src_addr, udp_remote_addr);
+                                    continue;
+                                }
+
                                 if sock.send(&buf_udp[..size]).await.is_none() {
                                     debug!("removed fake TCP socket from connections table");
                                     quit.cancel();
