@@ -1,23 +1,29 @@
 # OpenWrt
 
-The `phantun` package installs both binaries, `/etc/init.d/phantun`, and
-`/etc/config/phantun`. It depends on `kmod-tun`, with no shared libc or libgcc
-dependency. GitHub Actions reuses the statically linked musl release binaries
-to build OpenWrt packages with the official [SDK action](https://github.com/openwrt/gh-action-sdk):
-24.10.7 produces IPK packages and 25.12.5 produces APK packages. The matrix
-covers `x86_64`, `aarch64_generic`, `arm_cortex-a15_neon-vfpv4`, `mips_24kc`,
-and `mipsel_24kc`. Choose the package matching your firmware series and CPU
-architecture. Other targets can be added to the workflow matrix.
+Install the package matching your OpenWrt version and CPU architecture:
 
-Download packages from the workflow artifacts or a tagged GitHub release.
-Install the IPK with `opkg install /tmp/<package>.ipk`, or the unsigned APK
-with `apk add --allow-untrusted /tmp/<package>.apk`. Install only APK files
-from a source you trust; no signing key is configured in this repository.
+- OpenWrt 24.10: `.ipk`
+- OpenWrt 25.12: `.apk`
+
+Supported architectures: `x86_64`, `aarch64_generic`,
+`arm_cortex-a15_neon-vfpv4`, `mips_24kc`, and `mipsel_24kc`.
+Download packages from GitHub Releases or workflow artifacts, then install:
+
+```sh
+# OpenWrt 24.10
+opkg install /tmp/<package>.ipk
+
+# OpenWrt 25.12 (packages are unsigned)
+apk add --allow-untrusted /tmp/<package>.apk
+```
+
+The package installs both client and server binaries and requires `kmod-tun`.
+Configure instances in `/etc/config/phantun`.
 
 ## Service configuration
 
 The installed examples are disabled. Each `config client 'name'` or
-`config server 'name'` section becomes a separate supervised procd instance.
+`config server 'name'` section runs a separate instance.
 Copy sections to run any combination of clients and servers. For example:
 
 ```uci
@@ -86,9 +92,8 @@ logread -e phantun
 /etc/init.d/phantun stop
 ```
 
-procd handles respawning, stopping, and reconciling instances on reload, including
-removed/disabled sections. UCI changes applied through OpenWrt's service reload
-mechanism trigger a reload too. The processes run as root to create TUN devices.
+The service restarts failed instances and applies added, changed, disabled, or
+removed sections on reload.
 
 ## Firewall and forwarding
 
@@ -134,64 +139,3 @@ UDP port in the router's input policy as appropriate.
 The example is IPv4-only. IPv6 needs forwarding, IPv6 forwarding policies, and
 corresponding IPv6 NAT rules for the chosen TUN addresses; see the
 [main networking instructions](../README.md#2-add-required-firewall-rules).
-
-## Building
-
-The unified build workflow builds each musl target once, saves the binaries as workflow
-artifacts, and calls the OpenWrt packaging workflow after the Linux builds finish.
-Both SDK versions consume the same binaries; the SDK only assembles packages,
-without building Rust or recompiling Phantun.
-
-| OpenWrt architecture | Reused Rust musl target |
-| --- | --- |
-| `x86_64` | `x86_64-unknown-linux-musl` |
-| `aarch64_generic` | `aarch64-unknown-linux-musl` |
-| `arm_cortex-a15_neon-vfpv4` | `armv7-unknown-linux-musleabihf` |
-| `mips_24kc` | `mips-unknown-linux-musl` (nightly) |
-| `mipsel_24kc` | `mipsel-unknown-linux-musl` (nightly) |
-
-Every branch push, `v*.*.*` tag push, pull request, and manual **Build and release**
-run produces the same
-Linux/macOS release ZIPs and OpenWrt IPK/APK workflow artifacts. The same workflow
-also runs the Rust checks and host-side OpenWrt tests. The Docker build runs
-only on `v*.*.*` tag pushes. Only `v*.*.*` tag
-pushes publish those artifacts to a GitHub Release, after all jobs succeed.
-Branch pushes, PRs, and manual runs upload workflow artifacts only. Package
-filenames include the SDK release to distinguish IPK and APK builds.
-
-For local packaging, extract the corresponding musl release ZIP into
-`openwrt/phantun/prebuilt/`, then stage metadata from that same source revision:
-
-```sh
-cp LICENSE-MIT LICENSE-APACHE openwrt/phantun/prebuilt/
-python3 - <<'PYTHON'
-import pathlib
-import tomllib
-version = tomllib.loads(pathlib.Path('phantun/Cargo.toml').read_text())['package']['version']
-pathlib.Path('openwrt/phantun/prebuilt/version').write_text(version + '\n')
-PYTHON
-```
-
-Add `src-link phantun /absolute/path/to/phantun/openwrt` to the matching SDK's
-`feeds.conf` alongside its default feeds, then run in the SDK:
-
-```sh
-./scripts/feeds update -a
-./scripts/feeds install -p phantun phantun
-make defconfig
-make package/phantun/compile V=s
-```
-
-Package version comes from the staged `prebuilt/version` file. Outputs are under
-`bin/packages/`. Use the SDK architecture matching the selected musl binary;
-static linking removes shared-library dependencies, not CPU/ABI requirements.
-
-Run host-side service tests with:
-
-```sh
-python3 -m unittest discover -s openwrt/tests -v
-```
-
-These tests mock UCI/procd to check command construction and instance isolation.
-Actual packet forwarding, firewall integration, and service lifecycle should
-also be checked on an OpenWrt device.

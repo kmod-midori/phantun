@@ -1,0 +1,9 @@
+Package: phantun
+Version: @VERSION@
+Architecture: @ARCH@
+Depends: kmod-tun
+Section: net
+License: MIT Apache-2.0
+URL: https://github.com/dndx/phantun
+Installed-Size: 0
+Description: UDP to TCP obfuscator with a multi-instance UCI/procd service

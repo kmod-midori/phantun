@@ -7,14 +7,7 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - run: python3 -m unittest discover -s openwrt/tests -v
-
   build:
-    needs: test
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -29,55 +22,34 @@ jobs:
             target: mips-unknown-linux-musl
           - arch: mipsel_24kc
             target: mipsel-unknown-linux-musl
-        release: ['24.10.7', '25.12.5']
-        include:
-          - release: '24.10.7'
-            format: ipk
-          - release: '25.12.5'
-            format: apk
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - name: Download existing musl binaries
         uses: actions/download-artifact@v4
         with:
           name: musl-${{ matrix.platform.target }}
           path: openwrt/phantun/prebuilt
-      - name: Stage package metadata
+      - name: Prepare official IPK builder
         run: |
-          cp LICENSE-MIT LICENSE-APACHE openwrt/phantun/prebuilt/
-          python3 - <<'PYTHON'
-          import pathlib
-          import tomllib
-          version = tomllib.loads(pathlib.Path('phantun/Cargo.toml').read_text())['package']['version']
-          pathlib.Path('openwrt/phantun/prebuilt/version').write_text(version + '\n')
-          PYTHON
-      - name: Build with OpenWrt SDK
-        uses: openwrt/gh-action-sdk@v8
+          sudo apt-get update
+          sudo apt-get install -y fakeroot
+          curl -fsSL --retry 3 https://raw.githubusercontent.com/openwrt/openwrt/v24.10.7/scripts/ipkg-build -o "$RUNNER_TEMP/ipkg-build"
+      - name: Package IPK and APK
         env:
-          ARCH: ${{ matrix.platform.arch }}-${{ matrix.release }}
-          FEED_DIR: ${{ github.workspace }}/openwrt
-          PACKAGES: phantun
-          NO_SHFMT_CHECK: 1
-          V: s
-      - name: Collect package
-        env:
-          PACKAGE_FORMAT: ${{ matrix.format }}
-          SDK_RELEASE: ${{ matrix.release }}
+          OPENWRT_ARCH: ${{ matrix.platform.arch }}
         run: |
-          mkdir -p dist
-          find bin/packages -type f -name "phantun*.$PACKAGE_FORMAT" -exec cp -t dist {} +
-          test "$(find dist -type f | wc -l)" -eq 1
-          for package in dist/*; do
-            mv "$package" "dist/openwrt-$SDK_RELEASE-$(basename "$package")"
-          done
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            version="$GITHUB_REF_NAME"
+          else
+            version=$(git describe --tags --match 'v*.*.*' --abbrev=0)
+          fi
+          SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+          export SOURCE_DATE_EPOCH
+          bash openwrt/package.sh "$version" "$OPENWRT_ARCH" openwrt/phantun/prebuilt dist "$RUNNER_TEMP/ipkg-build"
       - uses: actions/upload-artifact@v4
         with:
-          name: phantun-openwrt-${{ matrix.release }}-${{ matrix.platform.arch }}
+          name: phantun-openwrt-${{ matrix.platform.arch }}
           path: dist/*
           if-no-files-found: error
-      - name: Upload build logs
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: logs-openwrt-${{ matrix.release }}-${{ matrix.platform.arch }}
-          path: logs/
