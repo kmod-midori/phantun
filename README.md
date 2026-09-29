@@ -9,7 +9,7 @@ A lightweight and fast UDP to TCP obfuscator.
 > Everything below that is not macOS-specific is upstream's, and upstream remains the place to
 > report bugs that reproduce on Linux.
 
-![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/kmod-midori/phantun/rust.yml)
+![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/kmod-midori/phantun/release.yml)
 ![docs.rs](https://img.shields.io/docsrs/fake-tcp)
 
 # Table of Contents
@@ -34,6 +34,7 @@ A lightweight and fast UDP to TCP obfuscator.
     * [4. Start Phantun daemon](#4-start-phantun-daemon)
         * [Server](#server)
         * [Client](#client)
+* [OpenWrt](openwrt/README.md)
 * [macOS](#macos)
 * [MTU overhead](#mtu-overhead)
     * [MTU calculation for WireGuard](#mtu-calculation-for-wireguard)

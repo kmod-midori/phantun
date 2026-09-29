@@ -1,0 +1,91 @@
+#!/bin/sh /etc/rc.common
+
+START=95
+STOP=10
+USE_PROCD=1
+
+append_option() {
+	local value
+	config_get value "$1" "$2"
+	[ -z "$value" ] || procd_append_param command "$3" "$value"
+}
+
+start_instance() {
+	local section="$1" mode="$2"
+	local enabled local_addr remote tun tun_local tun_peer ipv4_only
+	local tun_local6 tun_peer6 log_level value
+	config_get_bool enabled "$section" enabled 0
+	[ "$enabled" = 1 ] || return 0
+
+	config_get local_addr "$section" local
+	config_get remote "$section" remote
+	config_get tun "$section" tun
+	config_get tun_local "$section" tun_local
+	config_get tun_peer "$section" tun_peer
+	config_get_bool ipv4_only "$section" ipv4_only 1
+	config_get tun_local6 "$section" tun_local6
+	config_get tun_peer6 "$section" tun_peer6
+	config_get log_level "$section" log_level info
+
+	if [ -z "$local_addr" ] || [ -z "$remote" ] || [ -z "$tun" ] ||
+		[ -z "$tun_local" ] || [ -z "$tun_peer" ]; then
+		logger -t phantun "Skipping $section: local, remote, tun, tun_local and tun_peer are required"
+		return 0
+	fi
+	case "$tun" in
+		*[!a-zA-Z0-9_-]*)
+			logger -t phantun "Skipping $section: invalid TUN name"
+			return 0
+			;;
+	esac
+	if [ "${#tun}" -gt 15 ]; then
+		logger -t phantun "Skipping $section: TUN name exceeds 15 characters"
+		return 0
+	fi
+	if [ "$ipv4_only" = 0 ] && { [ -z "$tun_local6" ] || [ -z "$tun_peer6" ]; }; then
+		logger -t phantun "Skipping $section: tun_local6 and tun_peer6 are required for IPv6"
+		return 0
+	fi
+	# Exact address comparisons catch accidental reuse when duplicating a section.
+	local addresses="$tun_local $tun_peer"
+	[ "$ipv4_only" = 1 ] || addresses="$addresses $tun_local6 $tun_peer6"
+	local seen=" $used_tuns $used_addresses "
+	for value in "$tun" $addresses; do
+		case "$seen" in
+			*" $value "*)
+				logger -t phantun "Skipping $section: duplicate TUN name or address: $value"
+				return 0
+				;;
+		esac
+		seen="$seen$value "
+	done
+	used_tuns="$used_tuns $tun"
+	used_addresses="$used_addresses $addresses"
+
+	procd_open_instance "$section"
+	procd_set_param command "/usr/bin/phantun_$mode" \
+		--local "$local_addr" --remote "$remote" --tun "$tun" \
+		--tun-local "$tun_local" --tun-peer "$tun_peer"
+	if [ "$ipv4_only" = 1 ]; then
+		procd_append_param command --ipv4-only
+	else
+		procd_append_param command --tun-local6 "$tun_local6" --tun-peer6 "$tun_peer6"
+	fi
+	append_option "$section" handshake_packet --handshake-packet
+	procd_set_param env "RUST_LOG=$log_level"
+	procd_set_param respawn 3600 5 5
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_close_instance
+}
+
+start_service() {
+	local used_tuns="" used_addresses=""
+	config_load phantun
+	config_foreach start_instance client client
+	config_foreach start_instance server server
+}
+
+service_triggers() {
+	procd_add_reload_trigger phantun
+}

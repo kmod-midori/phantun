@@ -1,16 +1,62 @@
-name: Build Releases
+name: Build and release
 on:
+  workflow_dispatch:
   push:
+    branches:
+      - '**'
     tags:
-      - v*.*.*
+      - 'v*.*.*'
+  pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  lint:
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v5
+    - uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+    - name: Run lint
+      run: cargo clippy --verbose
+    - name: Build
+      run: cargo build --verbose
+
+  docker:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: amd64,arm64
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          tags: phantun
+          platforms: linux/amd64,linux/arm64
+
   build-cross:
     runs-on: ubuntu-latest
     env:
@@ -18,15 +64,10 @@ jobs:
     strategy:
       matrix:
         target:
-          - x86_64-unknown-linux-gnu
           - x86_64-unknown-linux-musl
-          - i686-unknown-linux-gnu
           - i686-unknown-linux-musl
-          - armv7-unknown-linux-gnueabihf
           - armv7-unknown-linux-musleabihf
-          - arm-unknown-linux-gnueabihf
           - arm-unknown-linux-musleabihf
-          - aarch64-unknown-linux-gnu
           - aarch64-unknown-linux-musl
 
     steps:
@@ -48,12 +89,21 @@ jobs:
           mv server phantun_server
           zip phantun_${{ matrix.target }}.zip phantun_client phantun_server
 
-      - name: Upload Github Assets
-        uses: softprops/action-gh-release@v2
+      - name: Save musl binaries for OpenWrt packaging
+        uses: actions/upload-artifact@v4
         with:
-          files: target/${{ matrix.target }}/release/*.zip
-          prerelease: ${{ contains(github.ref, '-') }}
-          update_existing: true
+          name: musl-${{ matrix.target }}
+          path: |
+            target/${{ matrix.target }}/release/phantun_client
+            target/${{ matrix.target }}/release/phantun_server
+          if-no-files-found: error
+
+      - name: Save release archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: phantun-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/*.zip
+          if-no-files-found: error
 
   build-macos:
     runs-on: macos-latest
@@ -81,12 +131,12 @@ jobs:
           mv server phantun_server
           zip phantun_${{ matrix.target }}.zip phantun_client phantun_server
 
-      - name: Upload Github Assets
-        uses: softprops/action-gh-release@v2
+      - name: Save release archive
+        uses: actions/upload-artifact@v4
         with:
-          files: target/${{ matrix.target }}/release/*.zip
-          prerelease: ${{ contains(github.ref, '-') }}
-          update_existing: true
+          name: phantun-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/*.zip
+          if-no-files-found: error
 
   build-mips-nightly:
     runs-on: ubuntu-latest
@@ -118,9 +168,42 @@ jobs:
           mv server phantun_server
           zip phantun_${{ matrix.target }}_nightly.zip phantun_client phantun_server
 
-      - name: Upload Github Assets
+      - name: Save musl binaries for OpenWrt packaging
+        if: contains(matrix.target, 'musl')
+        uses: actions/upload-artifact@v4
+        with:
+          name: musl-${{ matrix.target }}
+          path: |
+            target/${{ matrix.target }}/release/phantun_client
+            target/${{ matrix.target }}/release/phantun_server
+          if-no-files-found: error
+
+      - name: Save release archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: phantun-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/*.zip
+          if-no-files-found: error
+
+  openwrt:
+    needs: [build-cross, build-mips-nightly]
+    uses: ./.github/workflows/openwrt.yml
+
+  publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [lint, docker, build-cross, build-macos, build-mips-nightly, openwrt]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: phantun-*
+          path: dist
+          merge-multiple: true
+      - name: Publish release assets
         uses: softprops/action-gh-release@v2
         with:
-          files: target/${{ matrix.target }}/release/*.zip
+          files: dist/*
+          fail_on_unmatched_files: true
           prerelease: ${{ contains(github.ref, '-') }}
-          update_existing: true
