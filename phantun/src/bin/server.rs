@@ -8,6 +8,7 @@ use std::fs;
 use std::io;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::UdpSocket;
 use tokio::sync::Notify;
 use tokio::time;
@@ -92,6 +93,15 @@ async fn main() -> io::Result<()> {
                 .default_value("fcc9::2")
         )
         .arg(
+            Arg::new("udp_ttl")
+                .long("udp-ttl")
+                .required(false)
+                .value_name("SECS")
+                .help("Sets the UDP TTL, in seconds, used to expire connections with no traffic")
+                .value_parser(clap::value_parser!(u64))
+                .default_value(UDP_TTL.as_secs().to_string())
+        )
+        .arg(
             Arg::new("handshake_packet")
                 .long("handshake-packet")
                 .required(false)
@@ -140,6 +150,8 @@ async fn main() -> io::Result<()> {
                 .map(|v| v.parse().expect("bad peer address for Tun interface")),
         )
     };
+
+    let udp_ttl = Duration::from_secs(*matches.get_one::<u64>("udp_ttl").unwrap());
 
     let tun_name = matches.get_one::<String>("tun").unwrap();
     let handshake_packet: Option<Vec<u8>> = matches
@@ -245,12 +257,12 @@ async fn main() -> io::Result<()> {
 
             tokio::spawn(async move {
                 loop {
-                    let read_timeout = time::sleep(UDP_TTL);
+                    let read_timeout = time::sleep(udp_ttl);
                     let packet_received_fut = packet_received.notified();
 
                     tokio::select! {
                         _ = read_timeout => {
-                            info!("No traffic seen in the last {:?}, closing connection", UDP_TTL);
+                            info!("No traffic seen in the last {:?}, closing connection", udp_ttl);
 
                             quit.cancel();
                             return;

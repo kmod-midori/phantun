@@ -9,6 +9,7 @@ use std::fs;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::{Notify, RwLock};
 use tokio::time;
 use tokio_util::sync::CancellationToken;
@@ -92,6 +93,15 @@ async fn main() -> io::Result<()> {
                 .default_value("fcc8::2")
         )
         .arg(
+            Arg::new("udp_ttl")
+                .long("udp-ttl")
+                .required(false)
+                .value_name("SECS")
+                .help("Sets the UDP TTL, in seconds, used to expire connections with no traffic")
+                .value_parser(clap::value_parser!(u64))
+                .default_value(UDP_TTL.as_secs().to_string())
+        )
+        .arg(
             Arg::new("handshake_packet")
                 .long("handshake-packet")
                 .required(false)
@@ -141,6 +151,8 @@ async fn main() -> io::Result<()> {
                 .map(|v| v.parse().expect("bad peer address for Tun interface")),
         )
     };
+
+    let udp_ttl = Duration::from_secs(*matches.get_one::<u64>("udp_ttl").unwrap());
 
     let tun_name = matches.get_one::<String>("tun").unwrap();
     let handshake_packet: Option<Vec<u8>> = matches
@@ -306,12 +318,12 @@ async fn main() -> io::Result<()> {
             let connections = connections.clone();
             tokio::spawn(async move {
                 loop {
-                    let read_timeout = time::sleep(UDP_TTL);
+                    let read_timeout = time::sleep(udp_ttl);
                     let packet_received_fut = packet_received.notified();
 
                     tokio::select! {
                         _ = read_timeout => {
-                            info!("No traffic seen in the last {:?}, closing connection", UDP_TTL);
+                            info!("No traffic seen in the last {:?}, closing connection", udp_ttl);
                             connections.write().await.remove(&udp_remote_addr);
                             debug!("removed fake TCP socket from connections table");
 

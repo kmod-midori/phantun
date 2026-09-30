@@ -77,6 +77,7 @@ Optional settings:
 | `ipv4_only` | `1` | Pass `--ipv4-only` |
 | `tun_local6`, `tun_peer6` | none | Both required when `ipv4_only` is `0`; unique per instance |
 | `handshake_packet` | none | Path to a file sent after the TCP handshake |
+| `udp_ttl` | binary default (180) | Seconds of no traffic before a connection is closed |
 | `log_level` | `info` | Rust logging filter (`RUST_LOG`) |
 
 When `ipv4_only` is enabled, IPv6 TUN options are omitted even if configured.
