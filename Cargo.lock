@@ -260,6 +260,7 @@ dependencies = [
  "internet-checksum",
  "libc",
  "log",
+ "nix",
  "pnet",
  "rand",
  "tokio",

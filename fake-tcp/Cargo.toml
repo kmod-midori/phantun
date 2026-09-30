@@ -28,3 +28,4 @@ tokio-tun = "0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
+nix = { version = "0", features = ["ioctl", "net", "socket"] }

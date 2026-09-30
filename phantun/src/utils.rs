@@ -16,8 +16,6 @@ use nix::sys::socket::{
 };
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::os::unix::io::AsRawFd;
-#[cfg(target_os = "macos")]
-use std::process::Command;
 use tokio::io::Interest;
 use tokio::net::UdpSocket;
 
@@ -168,23 +166,8 @@ pub fn assign_ipv6_address(device_name: &str, local: Ipv6Addr, peer: Ipv6Addr) {
 
 #[cfg(target_os = "macos")]
 pub fn assign_ipv6_address(device_name: &str, local: Ipv6Addr, peer: Ipv6Addr) {
-    let output = Command::new("/sbin/ifconfig")
-        .args([
-            device_name,
-            "inet6",
-            &local.to_string(),
-            &peer.to_string(),
-            "prefixlen",
-            "128",
-        ])
-        .output()
-        .expect("unable to run ifconfig");
-    assert!(
-        output.status.success(),
-        "unable to assign IPv6 address to {}: {}",
-        device_name,
-        String::from_utf8_lossy(&output.stderr).trim()
-    );
+    fake_tcp::tun::assign_ipv6_address(device_name, local, peer)
+        .expect("unable to assign IPv6 address");
 }
 
 const fn max_usize(a: usize, b: usize) -> usize {
